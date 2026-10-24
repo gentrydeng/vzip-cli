@@ -110,7 +110,7 @@ Optional advanced verification requires installing [GitHub CLI](https://cli.gith
 gh attestation verify .\vzip-cli-x64.zip -R gentrydeng/vzip-cli
 ```
 
-Attestations establish build provenance; they are not Authenticode signatures, a security audit or a claim of byte-identical reproducible builds. To promote a build, open **Actions → Promote tested build to Release → Run workflow** on `main`. Enter a successful **Build and test** run ID and a version tag matching the built CMake version, such as `v0.1.0`. Keep **Create a draft** selected to review before publication. **Validate promotion** checks the full promotion path without creating a Release or tag. The workflow requires a successful trusted-main run, unexpired component artifacts, a matching version and valid provenance, and refuses to overwrite a tag. It uploads the six original ZIPs plus one `SHA256SUMS`, with architecture-specific download links and alternating Chinese/English release notes. GitHub supplies the source ZIP/tarball links automatically. A preview of note generation runs in CI without creating a Release or checksum asset.
+Attestations establish build provenance; they are not Authenticode signatures, a security audit or a claim of byte-identical reproducible builds.
 
 ## License, independence and AI work
 

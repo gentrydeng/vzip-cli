@@ -110,7 +110,7 @@ Select-String -LiteralPath .\SHA256SUMS -SimpleMatch 'vzip-cli-x64.zip'
 gh attestation verify .\vzip-cli-x64.zip -R gentrydeng/vzip-cli
 ```
 
-证明用于确定构建来源，不等于 Authenticode、安全审计或逐字节可复现构建声明。发布构建时，在 `main` 的 **Actions → Promote tested build to Release → Run workflow** 中填写成功的 **Build and test** 运行 ID，以及匹配构建时 CMake 版本的标签，例如 `v0.1.0`。默认勾选 **Create a draft**，先检查草稿再发布；勾选 **Validate promotion** 可只验证完整流程，不创建 Release 或标签。工作流要求可信 main 构建全部成功、组件制品未过期、版本匹配且证明有效，不覆盖已有标签；上传六个原始 ZIP 和一份 `SHA256SUMS`，生成明确的架构下载链接及中英交替说明。GitHub 自动提供源码 ZIP／tarball 链接。CI 会测试说明生成，但不创建 Release 或校验清单资产。
+证明用于确定构建来源，不等于 Authenticode、安全审计或逐字节可复现构建声明。
 
 ## 许可、独立性与 AI 工作
 
