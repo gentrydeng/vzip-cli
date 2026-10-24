@@ -11,6 +11,7 @@ param(
     [string]$ChecksumPath
 )
 $ErrorActionPreference = 'Stop'
+$projectPath = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 if ($PSVersionTable.PSVersion.Major -eq 5) {
     Import-Module (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
 }
@@ -21,7 +22,7 @@ if ($Repository -notmatch '^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9_.-]+$' -or
 }
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-. (Join-Path $PSScriptRoot 'Package.Common.ps1')
+. (Join-Path $projectPath 'scripts\Package.Common.ps1')
 $expected = @()
 foreach ($architecture in @('x64', 'x86', 'arm64')) {
     foreach ($component in @('cli', 'formats')) {
@@ -50,7 +51,7 @@ foreach ($architecture in @('x64', 'x86', 'arm64')) {
 }
 $cliDownloads = $cliLinks -join ' · '
 $formatsDownloads = $formatsLinks -join ' · '
-$changelog = Get-Content -LiteralPath (Join-Path (Split-Path $PSScriptRoot -Parent) 'CHANGELOG.md') -Raw -Encoding UTF8
+$changelog = Get-Content -LiteralPath (Join-Path $projectPath 'CHANGELOG.md') -Raw -Encoding UTF8
 $section = '(?ms)^## ' + [regex]::Escape($Tag) + '\r?\n(?<entry>.*?)(?=^## |\z)'
 $entry = [regex]::Match($changelog, $section)
 if (!$entry.Success -or [string]::IsNullOrWhiteSpace($entry.Groups['entry'].Value)) {

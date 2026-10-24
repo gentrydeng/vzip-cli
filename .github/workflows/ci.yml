@@ -119,4 +119,4 @@ jobs:
           $cmake = Get-Content CMakeLists.txt -Raw
           if ($cmake -notmatch 'project\(VZipCli VERSION ([0-9]+\.[0-9]+\.[0-9]+) ') { throw 'Project version missing' }
           $version = $Matches[1]
-          ./scripts/Write-ReleaseNotes.ps1 -Repository '${{ github.repository }}' -Tag "v$version" -SourceSha '${{ github.sha }}' -RunId '${{ github.run_id }}' -PackageDirectory release -NotesPath '.local/release-preview.md'
+          ./.github/scripts/Write-ReleaseNotes.ps1 -Repository '${{ github.repository }}' -Tag "v$version" -SourceSha '${{ github.sha }}' -RunId '${{ github.run_id }}' -PackageDirectory release -NotesPath '.local/release-preview.md'

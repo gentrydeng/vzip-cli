@@ -109,7 +109,7 @@ jobs:
         run: |
           $parameters = @{ Repository = $env:RELEASE_REPOSITORY; Tag = $env:RELEASE_TAG; SourceSha = $env:SOURCE_SHA; RunId = $env:RELEASE_RUN_ID; PackageDirectory = 'promotion/packages'; NotesPath = 'promotion/metadata/release-notes.md' }
           if ($env:RELEASE_VERIFY_ONLY -ne 'true') { $parameters.ChecksumPath = 'promotion/metadata/SHA256SUMS' }
-          ./scripts/Write-ReleaseNotes.ps1 @parameters
+          ./.github/scripts/Write-ReleaseNotes.ps1 @parameters
       - name: Create Release from verified build bytes
         if: ${{ !inputs.verify_only }}
         shell: pwsh
