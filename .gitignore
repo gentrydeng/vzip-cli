@@ -1,0 +1,6 @@
+.local/
+dist/
+release/
+.vs/
+*.user
+*.suo

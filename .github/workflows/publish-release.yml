@@ -1,0 +1,125 @@
+name: Promote tested build to Release
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful Build and test run ID from main
+        required: true
+        type: string
+      tag:
+        description: Version tag matching the built CMake version (for example v0.1.0)
+        required: true
+        type: string
+      draft:
+        description: Create a draft for review before publication
+        required: true
+        default: true
+        type: boolean
+      verify_only:
+        description: Validate promotion without creating a Release or tag
+        required: true
+        default: false
+        type: boolean
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+jobs:
+  promote:
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-2022
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      attestations: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_RUN_ID: ${{ inputs.run_id }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      RELEASE_DRAFT: ${{ inputs.draft }}
+      RELEASE_VERIFY_ONLY: ${{ inputs.verify_only }}
+      RELEASE_REPOSITORY: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Resolve a successful trusted build
+        id: source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repository = $env:RELEASE_REPOSITORY
+          $runId = $env:RELEASE_RUN_ID
+          $tag = $env:RELEASE_TAG
+          if ($runId -notmatch '^[1-9][0-9]*$' -or $tag -notmatch '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z][0-9A-Za-z.-]*)?(\+[0-9A-Za-z][0-9A-Za-z.-]*)?$') { throw 'Invalid run ID or version tag' }
+          $runText = gh api "repos/$repository/actions/runs/$runId"
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot read the selected run' }
+          $run = $runText | ConvertFrom-Json
+          $workflowText = gh api "repos/$repository/actions/workflows/ci.yml"
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot read the build workflow' }
+          $workflow = $workflowText | ConvertFrom-Json
+          if ($run.repository.full_name -cne $repository -or $run.head_repository.full_name -cne $repository -or $run.workflow_id -ne $workflow.id -or $run.head_branch -cne 'main' -or $run.event -notin @('push', 'workflow_dispatch') -or $run.status -ne 'completed' -or $run.conclusion -ne 'success' -or $run.head_sha -notmatch '^[0-9a-f]{40}$') { throw 'Only completed successful builds from this repository/main are eligible' }
+          $sourceSha = $run.head_sha
+          $comparison = gh api "repos/$repository/compare/$sourceSha...main" --jq .status
+          if ($LASTEXITCODE -ne 0 -or $comparison -notin @('identical', 'ahead')) { throw 'Source commit must remain in main history' }
+          $encoded = gh api "repos/$repository/contents/CMakeLists.txt?ref=$sourceSha" --jq .content
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot read the built project version' }
+          $cmake = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(($encoded -join '')))
+          if ($cmake -notmatch 'project\(VZipCli VERSION ([0-9]+\.[0-9]+\.[0-9]+) ') { throw 'Built project version missing' }
+          if (($tag -split '[-+]', 2)[0] -cne ('v' + $Matches[1])) { throw 'Tag version does not match the built project' }
+          $artifactText = gh api "repos/$repository/actions/runs/$runId/artifacts?per_page=100"
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot read build artifacts' }
+          $artifactData = $artifactText | ConvertFrom-Json
+          $expected = @('package-cli-x64', 'package-cli-x86', 'package-cli-arm64', 'package-formats-x64', 'package-formats-x86', 'package-formats-arm64') | Sort-Object
+          $artifacts = @($artifactData.artifacts | Where-Object { $_.name -like 'package-*' })
+          $names = @($artifacts | ForEach-Object { $_.name } | Sort-Object)
+          if ($artifactData.total_count -gt 100 -or $names.Count -ne 6 -or (Compare-Object $expected $names -CaseSensitive) -or ($artifacts | Where-Object expired)) { throw 'The six unexpired binary artifacts are required' }
+          $tagResult = (& gh api "repos/$repository/git/ref/tags/$tag" 2>&1) -join "`n"
+          if ($LASTEXITCODE -eq 0) { throw 'Tag already exists; it will not be overwritten' }
+          if ($tagResult -notmatch 'HTTP 404') { throw 'Unable to establish whether the tag exists' }
+          # A missing tag is expected; do not propagate gh's handled exit code to the Actions shell.
+          $LASTEXITCODE = 0
+          "sha=$sourceSha" >> $env:GITHUB_OUTPUT
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.run_id }}
+          pattern: package-*
+          merge-multiple: true
+          path: promotion/packages
+      - name: Verify provenance of all six original ZIPs
+        shell: pwsh
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          foreach ($architecture in @('x64', 'x86', 'arm64')) {
+            foreach ($component in @('cli', 'formats')) {
+              $package = "promotion/packages/vzip-$component-$architecture.zip"
+              gh attestation verify $package --repo $env:RELEASE_REPOSITORY --signer-workflow "$env:RELEASE_REPOSITORY/.github/workflows/ci.yml" --source-digest $env:SOURCE_SHA --deny-self-hosted-runners
+              if ($LASTEXITCODE -ne 0) { throw "Artifact provenance verification failed: $package" }
+            }
+          }
+      - name: Prepare bilingual notes and one checksum file
+        shell: pwsh
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          $parameters = @{ Repository = $env:RELEASE_REPOSITORY; Tag = $env:RELEASE_TAG; SourceSha = $env:SOURCE_SHA; RunId = $env:RELEASE_RUN_ID; PackageDirectory = 'promotion/packages'; NotesPath = 'promotion/metadata/release-notes.md' }
+          if ($env:RELEASE_VERIFY_ONLY -ne 'true') { $parameters.ChecksumPath = 'promotion/metadata/SHA256SUMS' }
+          ./scripts/Write-ReleaseNotes.ps1 @parameters
+      - name: Create Release from verified build bytes
+        if: ${{ !inputs.verify_only }}
+        shell: pwsh
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          $arguments = @('release', 'create', $env:RELEASE_TAG, '--repo', $env:RELEASE_REPOSITORY, '--target', $env:SOURCE_SHA, '--title', ('vzip-cli ' + $env:RELEASE_TAG), '--notes-file', 'promotion/metadata/release-notes.md')
+          if ($env:RELEASE_DRAFT -eq 'true') { $arguments += '--draft' }
+          if (($env:RELEASE_TAG -split '\+', 2)[0].Contains('-')) { $arguments += '--prerelease' }
+          $arguments += @(Get-ChildItem -LiteralPath 'promotion/packages' -File -Filter '*.zip' | Sort-Object Name | ForEach-Object { $_.FullName })
+          $arguments += 'promotion/metadata/SHA256SUMS'
+          & gh @arguments
+          if ($LASTEXITCODE -ne 0) { throw 'Release creation failed; inspect any partial draft before retrying' }
